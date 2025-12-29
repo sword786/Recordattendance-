@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { LayoutDashboard, Users, GraduationCap, Calendar, MessageSquare, Settings } from 'lucide-react';
 import { useData } from '../contexts/DataContext';
@@ -79,18 +80,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
             );
           })}
         </nav>
-
-        <div className="absolute bottom-0 w-full p-6 border-t border-slate-50 bg-white">
-          <div className="flex items-center p-3 rounded-xl border border-slate-100 hover:border-slate-200 transition-colors cursor-default">
-            <div className="flex-shrink-0 w-10 h-10 bg-slate-900 rounded-full flex items-center justify-center text-white font-bold shadow-md">
-              A
-            </div>
-            <div className="ml-3">
-              <p className="text-sm font-bold text-slate-800">Admin User</p>
-              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Administrator</p>
-            </div>
-          </div>
-        </div>
       </div>
     </>
   );
