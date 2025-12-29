@@ -3,50 +3,47 @@ import { GoogleGenAI } from "@google/genai";
 import { EntityProfile, TimeSlot, AiImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
-    You are an expert OCR and Timetable Extraction Engine. 
-    Your goal is to parse complex, potentially messy school timetable documents (PDFs, Images, or Text) into structured JSON.
+    You are a professional School Timetable Digitizer. 
+    Your goal: Convert timetable documents (PDFs, Images, or Text) into structured JSON.
 
-    EXTRACTION STRATEGY:
-    1. Look for headers representing Classes (e.g., "10A", "Grade 7") or Teachers (e.g., "Mr. Smith", "J. Doe").
-    2. Group data by these headers. Each group is a "profile".
-    3. For each profile, extract the weekly schedule (Days: Mon, Tue, Wed, Thu, Fri, Sat, Sun).
-    4. Map periods (1, 2, 3...) to their respective slots.
-    5. DETERMINATION: 
-       - If the main profiles are Classes, detectedType is "CLASS_WISE".
-       - If the main profiles are Teachers, detectedType is "TEACHER_WISE".
+    EXTRACTION RULES:
+    1. IDENTIFY PROFILES: Look for headers that are Teacher Names or Class Names (e.g., "7A", "Mr. John"). Each is a "profile".
+    2. WEEKLY GRID: Your school week is SATURDAY to THURSDAY. Ignore Friday.
+    3. SLOT MAPPING: For each profile, find the grid of Periods (1-9) vs Days.
+    4. DATA FIELDS: 
+       - "subject": The lesson name (e.g., "MATH").
+       - "room": The location (e.g., "S1").
+       - "code": 
+         - In a CLASS profile, "code" is the Teacher's initials.
+         - In a TEACHER profile, "code" is the Class Name (e.g., "10C").
 
-    DATA MAPPING:
-    - In "CLASS_WISE": "code" inside a slot is the Teacher.
-    - In "TEACHER_WISE": "code" inside a slot is the Class.
-    - Always extract "subject" and "room" (if available).
+    CRITICAL REASONING:
+    Timetables are often complex tables. Use your thinking capacity to trace rows and columns carefully. 
+    If a cell is empty, skip it. If it contains text, extract it.
 
-    CRITICAL: 
-    - Output ONLY valid JSON.
-    - If a profile is partially visible, extract what you can. 
-    - Do not skip profiles.
-
-    RETURN STRUCTURE:
+    OUTPUT FORMAT (STRICT JSON ONLY):
     {
       "detectedType": "TEACHER_WISE" | "CLASS_WISE",
       "profiles": [
         {
-          "name": "Full Profile Name",
+          "name": "Full Name of Class or Teacher",
           "schedule": {
-            "Mon": { "1": { "subject": "MATH", "room": "S1", "code": "JD" }, ... },
-            ...
+            "Sat": { "1": { "subject": "ENG", "room": "1", "code": "JD" } },
+            "Sun": { ... },
+            ... up to "Thu"
           }
         }
       ],
-      "unknownCodes": ["JD", "SMT", "10A"]
+      "unknownCodes": ["List", "of", "all", "unique", "codes", "found", "in", "slots"]
     }
 `;
 
 /**
- * Parses raw text or file using Gemini 3 Pro.
- * Uses thinkingBudget for complex layout reasoning.
+ * Parses timetable using Gemini 3 Flash with reasoning enabled.
+ * Flash is used for broad availability and speed.
  */
 export const processTimetableImport = async (input: { text?: string, base64?: string, mimeType?: string }): Promise<AiImportResult | null> => {
-  // Creating a new instance right before call ensures we use the latest injected API key.
+  // Always create a fresh instance to use the most recent API Key
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   try {
@@ -59,7 +56,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
             mimeType: input.mimeType 
           } 
         });
-        contentParts.push({ text: "Please analyze this document carefully. Extract every single timetable profile you find. Do not leave any profiles out. Use the provided JSON schema." });
+        contentParts.push({ text: "Examine this timetable carefully. Identify all classes and teachers. Provide the full extraction in the requested JSON format." });
     } else if (input.text) {
         contentParts.push({ text: input.text });
     } else {
@@ -67,22 +64,23 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
     }
 
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview', 
+      model: 'gemini-3-flash-preview', 
       contents: { parts: contentParts },
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        // Pro model allows thinking for complex layouts
-        thinkingConfig: { thinkingBudget: 2048 },
+        // Enable thinking to handle messy table layouts
+        thinkingConfig: { thinkingBudget: 4000 },
       }
     });
 
     const responseText = response.text;
-    if (!responseText) throw new Error("Empty response from AI.");
+    if (!responseText) throw new Error("AI returned an empty response.");
 
     const data = JSON.parse(responseText);
 
     if (!data.profiles || data.profiles.length === 0) {
+        console.warn("AI extraction returned 0 profiles. Response:", responseText);
         return {
             detectedType: data.detectedType || 'CLASS_WISE',
             profiles: [],
@@ -93,7 +91,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
 
     const processedProfiles = data.profiles.map((p: any) => ({
         ...p,
-        schedule: mapScheduleCodes(p.schedule)
+        schedule: normalizeDays(p.schedule)
     }));
 
     return {
@@ -104,72 +102,64 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
     };
 
   } catch (error: any) {
-    console.error("Gemini Pro Extraction Error:", error);
+    console.error("Extraction Error:", error);
     throw error;
   }
 };
 
-const mapScheduleCodes = (rawSchedule: any) => {
+const normalizeDays = (rawSchedule: any) => {
     const newSchedule: any = {};
     if (!rawSchedule) return {};
 
-    // Normalize day names to handle variations (Monday vs Mon)
-    const dayMap: Record<string, string> = {
+    const validDays = ['Sat', 'Sun', 'Mon', 'Tue', 'Wed', 'Thu'];
+    const dayAliases: Record<string, string> = {
+        'saturday': 'Sat', 'sat': 'Sat',
+        'sunday': 'Sun', 'sun': 'Sun',
         'monday': 'Mon', 'mon': 'Mon',
         'tuesday': 'Tue', 'tue': 'Tue',
         'wednesday': 'Wed', 'wed': 'Wed',
-        'thursday': 'Thu', 'thu': 'Thu',
-        'friday': 'Fri', 'fri': 'Fri',
-        'saturday': 'Sat', 'sat': 'Sat',
-        'sunday': 'Sun', 'sun': 'Sun'
+        'thursday': 'Thu', 'thu': 'Thu'
     };
 
-    Object.keys(rawSchedule).forEach(rawDayKey => {
-        const normalizedDay = dayMap[rawDayKey.toLowerCase()];
-        if (normalizedDay) {
-            newSchedule[normalizedDay] = {};
-            const periods = rawSchedule[rawDayKey];
-            if (periods) {
-                Object.keys(periods).forEach(periodNum => {
-                    const slot = periods[periodNum];
-                    if (slot && slot.subject) {
-                        newSchedule[normalizedDay][periodNum] = {
-                            subject: slot.subject.toUpperCase(),
-                            room: slot.room || '',
-                            teacherOrClass: slot.code || ''
-                        };
-                    }
-                });
-            }
+    Object.keys(rawSchedule).forEach(key => {
+        const normalized = dayAliases[key.toLowerCase()];
+        if (normalized && validDays.includes(normalized)) {
+            newSchedule[normalized] = {};
+            const periods = rawSchedule[key];
+            Object.keys(periods).forEach(pNum => {
+                const slot = periods[pNum];
+                if (slot && slot.subject) {
+                    newSchedule[normalized][pNum] = {
+                        subject: slot.subject.toUpperCase(),
+                        room: slot.room || '',
+                        teacherOrClass: slot.code || ''
+                    };
+                }
+            });
         }
     });
     return newSchedule;
 };
 
-/**
- * Assistant logic using Gemini 3 Pro.
- */
 export const generateAiResponse = async (userPrompt: string, dataContext: any): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   const systemInstruction = `
-    You are the ${dataContext.schoolName} Admin Assistant. 
-    Use the following school data to answer user queries accurately.
-    Today: ${new Date().toDateString()}.
-    Data Context: ${JSON.stringify(dataContext.entities.map(e => ({ name: e.name, code: e.shortCode })))}
+    You are the ${dataContext.schoolName} AI. 
+    Context: ${JSON.stringify(dataContext.entities.map(e => ({ name: e.name, code: e.shortCode })))}
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-pro-preview',
+      model: 'gemini-3-flash-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
-        thinkingConfig: { thinkingBudget: 1024 }
+        thinkingConfig: { thinkingBudget: 0 } // No reasoning needed for chat
       }
     });
-    return response.text || "No response generated.";
+    return response.text || "No response.";
   } catch (error) {
-    return "The assistant encountered a rate limit or processing error. Please try again.";
+    return "The assistant is busy. Please try again later.";
   }
 };
