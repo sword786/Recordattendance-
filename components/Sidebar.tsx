@@ -46,13 +46,13 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, isMob
       {/* Mobile Overlay */}
       {isMobileOpen && (
         <div 
-          className="fixed inset-0 z-20 bg-slate-900/20 backdrop-blur-sm lg:hidden"
+          className="fixed inset-0 z-[50] bg-slate-900/20 backdrop-blur-sm lg:hidden"
           onClick={() => setIsMobileOpen(false)}
         />
       )}
 
       {/* Sidebar Content */}
-      <div className={`fixed lg:static inset-y-0 left-0 z-30 w-64 bg-white border-r border-slate-100 shadow-xl lg:shadow-none transform transition-transform duration-300 cubic-bezier(0.4, 0, 0.2, 1) lg:transform-none ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+      <div className={`fixed lg:static inset-y-0 left-0 z-[60] w-64 bg-white border-r border-slate-100 shadow-xl lg:shadow-none transform transition-transform duration-300 cubic-bezier(0.4, 0, 0.2, 1) lg:transform-none ${isMobileOpen ? 'translate-x-0' : '-translate-x-full'}`}>
         <div className="flex items-center h-20 px-6 border-b border-slate-50">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center mr-3 shadow-lg shadow-blue-200">
              <span className="text-white font-black text-lg leading-none">M</span>

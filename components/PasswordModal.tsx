@@ -1,3 +1,4 @@
+
 import React, { useState } from 'react';
 import { Lock, X, ArrowRight, AlertCircle } from 'lucide-react';
 
@@ -28,7 +29,7 @@ export const PasswordModal: React.FC<PasswordModalProps> = ({ isOpen, onClose, o
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden scale-100 animate-in zoom-in-95 duration-200">
         <div className="p-6">
           <div className="flex justify-between items-center mb-6">

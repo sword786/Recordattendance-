@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { TimetableGrid } from './components/TimetableGrid';
@@ -8,7 +9,7 @@ import { Settings } from './components/Settings';
 import { AttendanceReport } from './components/AttendanceReport';
 import { DashboardHome } from './components/DashboardHome';
 import { PasswordModal } from './components/PasswordModal';
-import { Menu, Search, Filter, Pencil, Eye, LayoutGrid, ChevronDown } from 'lucide-react';
+import { Menu, Search, Filter, Pencil, Eye, LayoutGrid, ChevronDown, BookUser, Users } from 'lucide-react';
 import { TimetableEntry } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
 
@@ -21,13 +22,18 @@ const DashboardLayout: React.FC = () => {
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
 
+  // Auto-select first item when tab changes
   useEffect(() => {
     if ((activeTab === 'classes' || activeTab === 'teachers') && entities.length > 0) {
         const type = activeTab === 'classes' ? 'CLASS' : 'TEACHER';
         const filtered = entities.filter(e => e.type === type);
+        
+        // If current selection is invalid for new tab, select first available
         const currentSelectionValid = filtered.find(e => e.id === selectedEntityId);
         if (!currentSelectionValid && filtered.length > 0) {
             setSelectedEntityId(filtered[0].id);
+        } else if (filtered.length === 0) {
+            setSelectedEntityId('');
         }
     }
   }, [activeTab, entities, selectedEntityId]);
@@ -62,13 +68,18 @@ const DashboardLayout: React.FC = () => {
 
   const getPageTitle = () => {
       switch (activeTab) {
-          case 'dashboard': return 'Live';
-          case 'assistant': return 'Assistant';
-          case 'settings': return 'Settings';
-          case 'attendance': return 'Reports';
+          case 'dashboard': return 'Live Overview';
+          case 'assistant': return 'AI Assistant';
+          case 'settings': return 'System Settings';
+          case 'attendance': return 'Attendance Reports';
           default: return activeTab.charAt(0).toUpperCase() + activeTab.slice(1);
       }
   };
+
+  const getPlaceholderIcon = () => {
+      if (activeTab === 'teachers') return <Users className="w-8 h-8 text-slate-300 mb-3" />;
+      return <BookUser className="w-8 h-8 text-slate-300 mb-3" />;
+  }
 
   return (
     <div className="flex h-screen bg-[#f8fafc] overflow-hidden text-gray-900 font-sans">
@@ -101,8 +112,8 @@ const DashboardLayout: React.FC = () => {
                   {getPageTitle()}
                 </h1>
                 {selectedEntity && (activeTab === 'classes' || activeTab === 'teachers') && (
-                    <span className="text-[10px] font-bold text-blue-600 sm:hidden">
-                        Viewing: {selectedEntity.name}
+                    <span className="text-[10px] font-bold text-blue-600 sm:hidden truncate max-w-[150px]">
+                        {selectedEntity.name}
                     </span>
                 )}
             </div>
@@ -132,43 +143,50 @@ const DashboardLayout: React.FC = () => {
               
               {/* Adaptive Controls Bar */}
               <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shrink-0 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
-                <div className="flex-1 relative">
+                {/* Search */}
+                <div className="flex-1 relative max-w-md">
                     <Search className="absolute inset-y-0 left-3 my-auto h-4 w-4 text-slate-400" />
                     <input
                         type="text"
-                        className="block w-full pl-9 pr-3 py-2 border-none rounded-xl text-sm bg-slate-50 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-100 transition-all outline-none font-medium"
+                        className="block w-full pl-9 pr-3 py-2.5 border-none rounded-xl text-sm bg-slate-50 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-100 transition-all outline-none font-medium"
                         placeholder={`Search ${activeTab}...`}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
                 </div>
                 
-                <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-hide md:max-w-[60%]">
-                   {listData.length > 0 ? listData.map(item => (
-                       <button
-                         key={item.id}
-                         onClick={() => setSelectedEntityId(item.id)}
-                         className={`whitespace-nowrap px-4 py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${
-                             selectedEntityId === item.id 
-                             ? 'bg-slate-900 text-white shadow-md' 
-                             : 'bg-white text-slate-500 border border-slate-100 hover:bg-slate-50'
-                         }`}
-                       >
-                           {item.name}
-                       </button>
-                   )) : (
-                       <div className="text-[10px] text-slate-400 py-2 uppercase font-black">Empty Registry</div>
-                   )}
+                {/* Dropdown Selector */}
+                <div className="relative min-w-[200px] md:w-64">
+                    <div className="absolute inset-y-0 right-3 my-auto h-4 w-4 pointer-events-none flex items-center justify-center">
+                        <ChevronDown className="h-4 w-4 text-slate-400" />
+                    </div>
+                    <select
+                        value={selectedEntityId}
+                        onChange={(e) => setSelectedEntityId(e.target.value)}
+                        className="block w-full pl-4 pr-10 py-2.5 border border-slate-200 rounded-xl text-sm font-bold text-slate-700 bg-white focus:ring-2 focus:ring-blue-100 outline-none appearance-none cursor-pointer hover:border-blue-200 transition-colors shadow-sm"
+                        disabled={listData.length === 0}
+                    >
+                        {listData.length > 0 ? (
+                            listData.map(item => (
+                                <option key={item.id} value={item.id}>
+                                    {item.name} {item.shortCode ? `(${item.shortCode})` : ''}
+                                </option>
+                            ))
+                        ) : (
+                            <option value="" disabled>No {activeTab} found</option>
+                        )}
+                    </select>
                 </div>
               </div>
 
               {/* Responsive Timetable Area */}
               {selectedEntity ? (
                   <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden min-h-0">
-                      <div className="px-4 py-2.5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
-                        <div className="hidden sm:flex items-center gap-2">
+                      <div className="px-4 py-3 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+                        <div className="flex items-center gap-2">
                             <LayoutGrid className="w-4 h-4 text-slate-400" />
-                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">{selectedEntity.name} Schedule</span>
+                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest hidden sm:inline">{selectedEntity.name} Schedule</span>
+                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest sm:hidden">Timetable</span>
                         </div>
                         <button 
                             onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)}
@@ -191,11 +209,14 @@ const DashboardLayout: React.FC = () => {
                       </div>
                   </div>
               ) : (
-                  <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-2xl border-2 border-dashed border-slate-200 p-10 text-center">
-                      <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
-                          <Filter className="w-8 h-8 text-slate-200" />
+                  <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-2xl border-2 border-dashed border-slate-200 p-10 text-center mx-4 mb-4">
+                      <div className="bg-slate-50 p-4 rounded-full mb-4">
+                          {getPlaceholderIcon()}
                       </div>
-                      <p className="text-slate-400 font-bold text-sm">Select a profile to view timetable</p>
+                      <h3 className="text-slate-700 font-bold text-lg mb-1">No Selection</h3>
+                      <p className="text-slate-400 text-sm max-w-xs mx-auto">
+                          Select a {activeTab === 'classes' ? 'Class' : 'Teacher'} from the dropdown above to view their timetable.
+                      </p>
                   </div>
               )}
             </div>
