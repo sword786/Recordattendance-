@@ -19,7 +19,7 @@ const TIMETABLE_SYSTEM_INSTRUCTION = `
 
     CRITICAL REASONING:
     Timetables are often complex tables. Use your thinking capacity to trace rows and columns carefully. 
-    If a cell is empty, skip it. If it contains text, extract it.
+    Look for vertical and horizontal alignment. If you see a name at the top of a column or the start of a row, treat it as the Profile Name.
 
     OUTPUT FORMAT (STRICT JSON ONLY):
     {
@@ -43,7 +43,7 @@ const TIMETABLE_SYSTEM_INSTRUCTION = `
  * Flash is used for broad availability and speed.
  */
 export const processTimetableImport = async (input: { text?: string, base64?: string, mimeType?: string }): Promise<AiImportResult | null> => {
-  // Always create a fresh instance to use the most recent API Key
+  // Always create a fresh instance to use the most recent API Key from environment
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   try {
@@ -56,7 +56,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
             mimeType: input.mimeType 
           } 
         });
-        contentParts.push({ text: "Examine this timetable carefully. Identify all classes and teachers. Provide the full extraction in the requested JSON format." });
+        contentParts.push({ text: "Please carefully analyze this image/document. It is a school timetable. I need you to extract every single period for every teacher or class visible. Think through the table structure before outputting JSON." });
     } else if (input.text) {
         contentParts.push({ text: input.text });
     } else {
@@ -69,8 +69,8 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        // Enable thinking to handle messy table layouts
-        thinkingConfig: { thinkingBudget: 4000 },
+        // Enable thinking to handle messy table layouts - 12k budget for reasoning
+        thinkingConfig: { thinkingBudget: 12000 },
       }
     });
 
@@ -80,7 +80,7 @@ export const processTimetableImport = async (input: { text?: string, base64?: st
     const data = JSON.parse(responseText);
 
     if (!data.profiles || data.profiles.length === 0) {
-        console.warn("AI extraction returned 0 profiles. Response:", responseText);
+        console.warn("AI extraction returned 0 profiles.");
         return {
             detectedType: data.detectedType || 'CLASS_WISE',
             profiles: [],
@@ -126,16 +126,18 @@ const normalizeDays = (rawSchedule: any) => {
         if (normalized && validDays.includes(normalized)) {
             newSchedule[normalized] = {};
             const periods = rawSchedule[key];
-            Object.keys(periods).forEach(pNum => {
-                const slot = periods[pNum];
-                if (slot && slot.subject) {
-                    newSchedule[normalized][pNum] = {
-                        subject: slot.subject.toUpperCase(),
-                        room: slot.room || '',
-                        teacherOrClass: slot.code || ''
-                    };
-                }
-            });
+            if (periods && typeof periods === 'object') {
+              Object.keys(periods).forEach(pNum => {
+                  const slot = periods[pNum];
+                  if (slot && slot.subject) {
+                      newSchedule[normalized][pNum] = {
+                          subject: slot.subject.toUpperCase(),
+                          room: slot.room || '',
+                          teacherOrClass: slot.code || ''
+                      };
+                  }
+              });
+            }
         }
     });
     return newSchedule;
@@ -145,8 +147,9 @@ export const generateAiResponse = async (userPrompt: string, dataContext: any): 
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   const systemInstruction = `
-    You are the ${dataContext.schoolName} AI. 
-    Context: ${JSON.stringify(dataContext.entities.map(e => ({ name: e.name, code: e.shortCode })))}
+    You are the ${dataContext.schoolName} AI Assistant. 
+    You have access to the current school state.
+    Context: ${JSON.stringify(dataContext.entities.map((e: EntityProfile) => ({ name: e.name, code: e.shortCode })))}
   `;
 
   try {
@@ -155,11 +158,12 @@ export const generateAiResponse = async (userPrompt: string, dataContext: any): 
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
-        thinkingConfig: { thinkingBudget: 0 } // No reasoning needed for chat
+        thinkingConfig: { thinkingBudget: 0 } // No reasoning needed for simple chat
       }
     });
-    return response.text || "No response.";
+    return response.text || "I'm sorry, I couldn't generate a response.";
   } catch (error) {
-    return "The assistant is busy. Please try again later.";
+    console.error("Assistant Error:", error);
+    return "The assistant is currently unavailable. Please try again in a moment.";
   }
 };
