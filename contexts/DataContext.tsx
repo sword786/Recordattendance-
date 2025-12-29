@@ -15,9 +15,10 @@ interface DataContextType {
   // AI Import State
   aiImportStatus: AiImportStatus;
   aiImportResult: AiImportResult | null;
+  aiImportErrorMessage: string | null;
   startAiImport: (file?: File, text?: string) => Promise<void>;
   cancelAiImport: () => void;
-  finalizeAiImport: (mappings: Record<string, string>) => void; // Mappings: Code -> Real Name
+  finalizeAiImport: (mappings: Record<string, string>) => void;
 
   updateSchoolName: (name: string) => void;
   updateAcademicYear: (year: string) => void;
@@ -56,6 +57,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   // AI State
   const [aiImportStatus, setAiImportStatus] = useState<AiImportStatus>('IDLE');
   const [aiImportResult, setAiImportResult] = useState<AiImportResult | null>(null);
+  const [aiImportErrorMessage, setAiImportErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
     try {
@@ -89,40 +91,55 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     localStorage.setItem('mupini_attendance', JSON.stringify(attendanceRecords));
   }, [schoolName, academicYear, entities, students, timeSlots, attendanceRecords, isInitialized]);
 
-  // AI Import Logic
   const startAiImport = async (file?: File, text?: string) => {
     setAiImportStatus('PROCESSING');
+    setAiImportErrorMessage(null);
     try {
         let result: AiImportResult | null = null;
         if (file) {
             const reader = new FileReader();
             reader.readAsDataURL(file);
-            await new Promise<void>((resolve) => {
+            await new Promise<void>((resolve, reject) => {
                 reader.onload = async (event) => {
-                    const base64 = (event.target?.result as string).split(',')[1];
-                    result = await processTimetableImport({ base64, mimeType: file.type });
-                    resolve();
+                    try {
+                        const base64 = (event.target?.result as string).split(',')[1];
+                        result = await processTimetableImport({ base64, mimeType: file.type });
+                        resolve();
+                    } catch (err) {
+                        reject(err);
+                    }
                 };
             });
         } else if (text) {
             result = await processTimetableImport({ text });
         }
 
-        if (result) {
+        if (result && result.profiles.length > 0) {
             setAiImportResult(result);
             setAiImportStatus('REVIEW');
+        } else if (result && result.profiles.length === 0) {
+            setAiImportStatus('ERROR');
+            setAiImportErrorMessage("Gemini recognized the file but couldn't find any timetable profiles. Please ensure the names/headers are clear.");
         } else {
             setAiImportStatus('ERROR');
+            setAiImportErrorMessage("Failed to process document. Try a different format or clearer file.");
         }
-    } catch (e) {
-        console.error(e);
+    } catch (err: any) {
+        console.error("AI Import Error:", err);
         setAiImportStatus('ERROR');
+        const msg = err.message || "";
+        if (msg.includes('429') || err.status === 'RESOURCE_EXHAUSTED') {
+            setAiImportErrorMessage("Quota exceeded for Gemini 3 Pro. Please wait a minute or use a paid API Key.");
+        } else {
+            setAiImportErrorMessage(`Extraction failed: ${msg.substring(0, 100)}`);
+        }
     }
   };
 
   const cancelAiImport = () => {
       setAiImportStatus('IDLE');
       setAiImportResult(null);
+      setAiImportErrorMessage(null);
   };
 
   const finalizeAiImport = (mappings: Record<string, string>) => {
@@ -131,13 +148,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const newEntities: EntityProfile[] = [];
     const { detectedType, profiles } = aiImportResult;
 
-    const generateCode = (name: string) => name.replace(/[^A-Z]/gi, '').substring(0, 3).toUpperCase();
-
     profiles.forEach(p => {
         const type = detectedType === 'TEACHER_WISE' ? 'TEACHER' : 'CLASS';
         const code = detectedType === 'TEACHER_WISE' 
-            ? p.name.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
-            : generateCode(p.name);
+            ? p.name.split(' ').map(n => n[0]).join('').substring(0, 3).toUpperCase()
+            : p.name.substring(0, 5).toUpperCase().replace(/ /g, '');
             
         newEntities.push({
             id: `${type.toLowerCase()}-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -153,16 +168,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     Object.entries(mappings).forEach(([code, realName]) => {
         if (!realName.trim()) return;
 
-        const secondaryCode = detectedType === 'CLASS_WISE' 
-            ? realName.split(' ').map(n => n[0]).join('').substring(0, 2).toUpperCase()
-            : code;
-
         const newId = `${secondaryType.toLowerCase()}-${Date.now()}-${code}`;
-        
         const secondaryEntity: EntityProfile = {
             id: newId,
             name: realName,
-            shortCode: secondaryCode,
+            shortCode: code,
             type: secondaryType,
             schedule: {} as any
         };
@@ -176,18 +186,11 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 Object.entries(slots).forEach(([periodStr, entry]: [string, any]) => {
                     const period = parseInt(periodStr);
                     if (entry && entry.teacherOrClass === code) {
-                        const mainIdentifier = mainEntity.shortCode || mainEntity.name;
-                        
-                        if (secondaryEntity.shortCode) {
-                           // @ts-ignore
-                           mainEntity.schedule[day][period].teacherOrClass = secondaryEntity.shortCode; 
-                        }
-
                         if (!secondaryEntity.schedule[day as DayOfWeek]) secondaryEntity.schedule[day as DayOfWeek] = {};
                         secondaryEntity.schedule[day as DayOfWeek][period] = {
                             subject: entry.subject,
                             room: entry.room,
-                            teacherOrClass: mainIdentifier 
+                            teacherOrClass: mainEntity.shortCode || mainEntity.name
                         };
                     }
                 });
@@ -310,7 +313,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   return (
     <DataContext.Provider value={{
       schoolName, academicYear, entities, students, timeSlots, attendanceRecords,
-      aiImportStatus, aiImportResult, startAiImport, cancelAiImport, finalizeAiImport,
+      aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport,
       updateSchoolName, updateAcademicYear, updateEntities, updateStudents, updateTimeSlots,
       addEntity, updateEntity, deleteEntity, addStudent, updateStudent, deleteStudent,
       updateSchedule, markAttendance, getAttendanceForPeriod, resetData, importData

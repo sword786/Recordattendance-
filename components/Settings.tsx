@@ -1,9 +1,13 @@
+
 import React, { useState, useRef, useMemo } from 'react';
 import { useData } from '../contexts/DataContext';
-import { Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, AlertCircle, ArrowRight, Pencil, Clock } from 'lucide-react';
+import { Trash2, Plus, FileText, Sparkles, Loader2, FileUp, Check, X, Upload, AlertCircle, ArrowRight, Pencil, Clock, Key, ExternalLink } from 'lucide-react';
 import { EntityProfile, TimeSlot } from '../types';
 
 type SettingsTab = 'general' | 'timetable' | 'teachers' | 'classes' | 'students' | 'import';
+
+// The global aistudio is already defined by the environment as AIStudio.
+// We remove the manual declaration to avoid "identical modifiers" and type mismatch errors.
 
 export const Settings: React.FC = () => {
   const { 
@@ -13,7 +17,7 @@ export const Settings: React.FC = () => {
     students, addStudent, deleteStudent,
     timeSlots, updateTimeSlots,
     resetData,
-    aiImportStatus, aiImportResult, startAiImport, cancelAiImport, finalizeAiImport
+    aiImportStatus, aiImportResult, aiImportErrorMessage, startAiImport, cancelAiImport, finalizeAiImport
   } = useData();
 
   const [activeTab, setActiveTab] = useState<SettingsTab>('general');
@@ -33,6 +37,15 @@ export const Settings: React.FC = () => {
   const [isEditingSlots, setIsEditingSlots] = useState(false);
   
   const classes = useMemo(() => entities.filter(e => e.type === 'CLASS'), [entities]);
+
+  // Handler for API Key selection using the global aistudio object
+  const handleApiKeySelection = async () => {
+    try {
+      await window.aistudio.openSelectKey();
+    } catch (e) {
+      console.error("Key selection failed", e);
+    }
+  };
 
   const handleAddEntity = (type: 'TEACHER' | 'CLASS') => {
     if (!newEntityName.trim()) return;
@@ -219,21 +232,23 @@ export const Settings: React.FC = () => {
               <input type="text" value={academicYear} onChange={e => updateAcademicYear(e.target.value)} className="w-full p-3 border border-slate-200 rounded-xl text-sm font-bold bg-slate-50 focus:bg-white focus:ring-4 focus:ring-blue-50 transition-all outline-none" />
             </div>
           </div>
-          <div className="pt-6 border-t border-slate-100">
-            {confirmDeleteId === 'FULL_RESET' ? (
-                <div className="bg-rose-50 p-5 rounded-2xl border border-rose-100 flex flex-col sm:flex-row items-center gap-4 animate-in zoom-in-95">
-                    <AlertCircle className="w-6 h-6 text-rose-500 shrink-0" />
-                    <span className="text-xs font-black text-rose-700 uppercase tracking-wide text-center sm:text-left">Delete all data permanently?</span>
-                    <div className="flex gap-2 w-full sm:w-auto">
-                        <button onClick={() => { resetData(); setConfirmDeleteId(null); }} className="flex-1 sm:flex-none px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md">WIPE</button>
-                        <button onClick={() => setConfirmDeleteId(null)} className="flex-1 sm:flex-none px-6 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest">Cancel</button>
+          <div className="pt-6 border-t border-slate-100 flex flex-col gap-4">
+            <div className="flex flex-wrap gap-4">
+                {confirmDeleteId === 'FULL_RESET' ? (
+                    <div className="bg-rose-50 p-5 rounded-2xl border border-rose-100 flex flex-col sm:flex-row items-center gap-4 animate-in zoom-in-95">
+                        <AlertCircle className="w-6 h-6 text-rose-500 shrink-0" />
+                        <span className="text-xs font-black text-rose-700 uppercase tracking-wide text-center sm:text-left">Delete all data permanently?</span>
+                        <div className="flex gap-2 w-full sm:w-auto">
+                            <button onClick={() => { resetData(); setConfirmDeleteId(null); }} className="flex-1 sm:flex-none px-6 py-2 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-md">WIPE</button>
+                            <button onClick={() => setConfirmDeleteId(null)} className="flex-1 sm:flex-none px-6 py-2 bg-white text-slate-600 border border-slate-200 rounded-xl text-[10px] font-black uppercase tracking-widest">Cancel</button>
+                        </div>
                     </div>
-                </div>
-            ) : (
-                <button onClick={() => setConfirmDeleteId('FULL_RESET')} className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center hover:bg-rose-100 transition-colors">
-                  <Trash2 className="w-4 h-4 mr-2" /> Reset System
-                </button>
-            )}
+                ) : (
+                    <button onClick={() => setConfirmDeleteId('FULL_RESET')} className="px-5 py-3 bg-rose-50 text-rose-600 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center hover:bg-rose-100 transition-colors">
+                      <Trash2 className="w-4 h-4 mr-2" /> Reset System
+                    </button>
+                )}
+            </div>
           </div>
         </div>
       )}
@@ -306,15 +321,48 @@ export const Settings: React.FC = () => {
                   <h3 className="text-lg font-black text-slate-800 uppercase tracking-widest">Analyzing Documents</h3>
               </div>
           )}
+          
           <div className="max-w-xl mx-auto space-y-8">
             <h3 className="text-xl font-black text-slate-800 uppercase tracking-widest flex items-center justify-center"><Sparkles className="w-6 h-6 mr-3 text-blue-500" /> AI Document Scanner</h3>
+            
+            {aiImportStatus === 'ERROR' && aiImportErrorMessage && (
+                <div className="bg-rose-50 border border-rose-100 p-4 rounded-2xl flex flex-col items-center gap-3 animate-in shake">
+                    <div className="flex items-center gap-2 text-rose-600 font-black text-[10px] uppercase tracking-widest">
+                        <AlertCircle className="w-4 h-4" /> {aiImportErrorMessage}
+                    </div>
+                    {(aiImportErrorMessage.includes("Quota") || aiImportErrorMessage.includes("API key")) && (
+                        <div className="flex flex-col gap-2 w-full">
+                            <button 
+                                onClick={handleApiKeySelection}
+                                className="w-full flex items-center justify-center px-4 py-2 bg-white border border-rose-200 text-rose-700 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-100 transition-colors shadow-sm"
+                            >
+                                <Key className="w-3.5 h-3.5 mr-2" /> Select Paid API Key
+                            </button>
+                            <a 
+                                href="https://ai.google.dev/gemini-api/docs/billing" 
+                                target="_blank" 
+                                className="text-[9px] text-slate-400 hover:text-blue-500 flex items-center justify-center gap-1 font-bold"
+                            >
+                                Learn about billing <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
+                        </div>
+                    )}
+                </div>
+            )}
+
             <div className="border-2 border-dashed border-slate-200 rounded-3xl p-10 bg-slate-50/50 hover:bg-slate-100/50 transition-colors cursor-pointer group" onClick={() => fileInputRef.current?.click()}>
               <div className="w-16 h-16 bg-white rounded-2xl shadow-md flex items-center justify-center mb-4 mx-auto group-hover:scale-110 transition-transform"><FileUp className="w-8 h-8 text-blue-500" /></div>
               <h4 className="font-black text-slate-700 uppercase tracking-widest text-[10px] mb-4">Drop PDF or Image here</h4>
               <input type="file" ref={fileInputRef} onChange={async (e) => { const f = e.target.files?.[0]; if(f) await startAiImport(f); }} accept=".pdf,image/*" className="hidden" />
               <div className="px-6 py-2.5 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-lg inline-block">Pick File</div>
             </div>
-            <div className="flex items-center gap-4"><div className="flex-1 h-px bg-slate-100"></div><span className="text-[10px] font-black text-slate-300">OR PASTE</span><div className="flex-1 h-px bg-slate-100"></div></div>
+            
+            <div className="flex items-center gap-4">
+                <div className="flex-1 h-px bg-slate-100"></div>
+                <span className="text-[10px] font-black text-slate-300">OR PASTE</span>
+                <div className="flex-1 h-px bg-slate-100"></div>
+            </div>
+            
             <textarea value={aiTimetableInput} onChange={e => setAiTimetableInput(e.target.value)} placeholder="Paste plain text content here..." className="w-full h-40 p-4 border border-slate-200 rounded-2xl text-sm outline-none focus:ring-4 focus:ring-blue-50" />
             <button onClick={() => startAiImport(undefined, aiTimetableInput)} disabled={!aiTimetableInput.trim()} className="w-full py-4 bg-slate-900 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl disabled:opacity-50">Process Content</button>
           </div>

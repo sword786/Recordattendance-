@@ -3,79 +3,109 @@ import { GoogleGenAI } from "@google/genai";
 import { EntityProfile, TimeSlot, AiImportResult } from '../types';
 
 const TIMETABLE_SYSTEM_INSTRUCTION = `
-    You are an expert Timetable Data Extractor. 
-    Your task is to analyze the provided document (PDF/Image/Text) and extract the timetable data with 100% accuracy.
+    You are an expert OCR and Timetable Extraction Engine. 
+    Your goal is to parse complex, potentially messy school timetable documents (PDFs, Images, or Text) into structured JSON.
 
-    First, determine if the document is a "TEACHER_WISE" timetable (Main headers are Teacher Names) or a "CLASS_WISE" timetable (Main headers are Class Names).
+    EXTRACTION STRATEGY:
+    1. Look for headers representing Classes (e.g., "10A", "Grade 7") or Teachers (e.g., "Mr. Smith", "J. Doe").
+    2. Group data by these headers. Each group is a "profile".
+    3. For each profile, extract the weekly schedule (Days: Mon, Tue, Wed, Thu, Fri, Sat, Sun).
+    4. Map periods (1, 2, 3...) to their respective slots.
+    5. DETERMINATION: 
+       - If the main profiles are Classes, detectedType is "CLASS_WISE".
+       - If the main profiles are Teachers, detectedType is "TEACHER_WISE".
 
-    Return a JSON object with this exact structure:
+    DATA MAPPING:
+    - In "CLASS_WISE": "code" inside a slot is the Teacher.
+    - In "TEACHER_WISE": "code" inside a slot is the Class.
+    - Always extract "subject" and "room" (if available).
+
+    CRITICAL: 
+    - Output ONLY valid JSON.
+    - If a profile is partially visible, extract what you can. 
+    - Do not skip profiles.
+
+    RETURN STRUCTURE:
     {
-      "detectedType": "TEACHER_WISE" or "CLASS_WISE",
+      "detectedType": "TEACHER_WISE" | "CLASS_WISE",
       "profiles": [
-         {
-            "name": "Name of the Teacher or Class",
-            "schedule": {
-                "Mon": { "1": { "subject": "MATH", "room": "R1", "code": "The code found in this slot" }, ... },
-                ...
-            }
-         }
+        {
+          "name": "Full Profile Name",
+          "schedule": {
+            "Mon": { "1": { "subject": "MATH", "room": "S1", "code": "JD" }, ... },
+            ...
+          }
+        }
       ],
-      "unknownCodes": ["List", "of", "all", "unique", "codes", "found", "inside", "the", "slots"]
+      "unknownCodes": ["JD", "SMT", "10A"]
     }
-
-    CRITICAL RULES:
-    1. "code": If this is a Teacher-wise timetable, the "code" inside a slot is the Class Code (e.g., "10A", "G9").
-    2. "code": If this is a Class-wise timetable, the "code" inside a slot is the Teacher Code (e.g., "JD", "SMT").
-    3. Extract ALL profiles found in the file.
-    4. "unknownCodes" must be a unique list of all the codes found inside the schedule slots.
 `;
 
 /**
- * Parses raw text or file using Gemini 3 Pro with high context.
+ * Parses raw text or file using Gemini 3 Pro.
+ * Uses thinkingBudget for complex layout reasoning.
  */
 export const processTimetableImport = async (input: { text?: string, base64?: string, mimeType?: string }): Promise<AiImportResult | null> => {
-  // Always initialize right before use to ensure the latest API Key is picked up from environment
+  // Creating a new instance right before call ensures we use the latest injected API key.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   try {
-    let contentPart: any;
+    let contentParts: any[] = [];
     
     if (input.base64 && input.mimeType) {
-        contentPart = { parts: [{ inlineData: { data: input.base64, mimeType: input.mimeType } }] };
+        contentParts.push({ 
+          inlineData: { 
+            data: input.base64, 
+            mimeType: input.mimeType 
+          } 
+        });
+        contentParts.push({ text: "Please analyze this document carefully. Extract every single timetable profile you find. Do not leave any profiles out. Use the provided JSON schema." });
     } else if (input.text) {
-        contentPart = { parts: [{ text: input.text }] };
+        contentParts.push({ text: input.text });
     } else {
         return null;
     }
 
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview', 
-      contents: contentPart,
+      contents: { parts: contentParts },
       config: {
         systemInstruction: TIMETABLE_SYSTEM_INSTRUCTION,
         responseMimeType: "application/json",
-        thinkingConfig: { thinkingBudget: 1000 } // Add thinking budget for complex parsing
+        // Pro model allows thinking for complex layouts
+        thinkingConfig: { thinkingBudget: 2048 },
       }
     });
 
-    const text = response.text || "{}";
-    const data = JSON.parse(text);
+    const responseText = response.text;
+    if (!responseText) throw new Error("Empty response from AI.");
 
-    const processedProfiles = data.profiles?.map((p: any) => ({
+    const data = JSON.parse(responseText);
+
+    if (!data.profiles || data.profiles.length === 0) {
+        return {
+            detectedType: data.detectedType || 'CLASS_WISE',
+            profiles: [],
+            unknownCodes: [],
+            rawTextResponse: responseText
+        };
+    }
+
+    const processedProfiles = data.profiles.map((p: any) => ({
         ...p,
         schedule: mapScheduleCodes(p.schedule)
     }));
 
     return {
         detectedType: data.detectedType || 'CLASS_WISE',
-        profiles: processedProfiles || [],
+        profiles: processedProfiles,
         unknownCodes: data.unknownCodes || [],
-        rawTextResponse: text
+        rawTextResponse: responseText
     };
 
-  } catch (error) {
-    console.error("AI Parse Error:", error);
-    return null;
+  } catch (error: any) {
+    console.error("Gemini Pro Extraction Error:", error);
+    throw error;
   }
 };
 
@@ -83,47 +113,63 @@ const mapScheduleCodes = (rawSchedule: any) => {
     const newSchedule: any = {};
     if (!rawSchedule) return {};
 
-    Object.keys(rawSchedule).forEach(day => {
-        newSchedule[day] = {};
-        if (rawSchedule[day]) {
-            Object.keys(rawSchedule[day]).forEach(period => {
-                const slot = rawSchedule[day][period];
-                if (slot) {
-                    newSchedule[day][period] = {
-                        subject: slot.subject,
-                        room: slot.room,
-                        teacherOrClass: slot.code
-                    };
-                }
-            });
+    // Normalize day names to handle variations (Monday vs Mon)
+    const dayMap: Record<string, string> = {
+        'monday': 'Mon', 'mon': 'Mon',
+        'tuesday': 'Tue', 'tue': 'Tue',
+        'wednesday': 'Wed', 'wed': 'Wed',
+        'thursday': 'Thu', 'thu': 'Thu',
+        'friday': 'Fri', 'fri': 'Fri',
+        'saturday': 'Sat', 'sat': 'Sat',
+        'sunday': 'Sun', 'sun': 'Sun'
+    };
+
+    Object.keys(rawSchedule).forEach(rawDayKey => {
+        const normalizedDay = dayMap[rawDayKey.toLowerCase()];
+        if (normalizedDay) {
+            newSchedule[normalizedDay] = {};
+            const periods = rawSchedule[rawDayKey];
+            if (periods) {
+                Object.keys(periods).forEach(periodNum => {
+                    const slot = periods[periodNum];
+                    if (slot && slot.subject) {
+                        newSchedule[normalizedDay][periodNum] = {
+                            subject: slot.subject.toUpperCase(),
+                            room: slot.room || '',
+                            teacherOrClass: slot.code || ''
+                        };
+                    }
+                });
+            }
         }
     });
     return newSchedule;
 };
 
 /**
- * Generates an assistant response using Gemini 3 Flash.
+ * Assistant logic using Gemini 3 Pro.
  */
 export const generateAiResponse = async (userPrompt: string, dataContext: any): Promise<string> => {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || '' });
 
   const systemInstruction = `
-    You are an AI assistant for ${dataContext.schoolName}. 
-    Answer questions based on this data: ${JSON.stringify(dataContext.entities.filter((d: any) => Object.keys(d.schedule || {}).length > 0))}
-    Be helpful and concise.
+    You are the ${dataContext.schoolName} Admin Assistant. 
+    Use the following school data to answer user queries accurately.
+    Today: ${new Date().toDateString()}.
+    Data Context: ${JSON.stringify(dataContext.entities.map(e => ({ name: e.name, code: e.shortCode })))}
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: userPrompt,
       config: {
         systemInstruction: systemInstruction,
+        thinkingConfig: { thinkingBudget: 1024 }
       }
     });
-    return response.text || "I couldn't generate a response.";
+    return response.text || "No response generated.";
   } catch (error) {
-    console.error("AI Assistant Error:", error);
-    return "Error processing request.";
+    return "The assistant encountered a rate limit or processing error. Please try again.";
   }
 };
