@@ -8,11 +8,10 @@ import { Settings } from './components/Settings';
 import { AttendanceReport } from './components/AttendanceReport';
 import { DashboardHome } from './components/DashboardHome';
 import { PasswordModal } from './components/PasswordModal';
-import { Menu, Search, Filter, Pencil, Eye } from 'lucide-react';
+import { Menu, Search, Filter, Pencil, Eye, LayoutGrid, ChevronDown } from 'lucide-react';
 import { TimetableEntry } from './types';
 import { DataProvider, useData } from './contexts/DataContext';
 
-// Inner Component to use the Context
 const DashboardLayout: React.FC = () => {
   const { entities, updateSchedule, academicYear } = useData();
   const [activeTab, setActiveTab] = useState('dashboard');
@@ -20,43 +19,26 @@ const DashboardLayout: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isEditMode, setIsEditMode] = useState(false);
   const [isPasswordOpen, setIsPasswordOpen] = useState(false);
-  
-  // Selection State
   const [selectedEntityId, setSelectedEntityId] = useState<string>('');
 
-  // Auto-select first entity when switching to list views
   useEffect(() => {
     if ((activeTab === 'classes' || activeTab === 'teachers') && entities.length > 0) {
         const type = activeTab === 'classes' ? 'CLASS' : 'TEACHER';
         const filtered = entities.filter(e => e.type === type);
-        
-        // Only reset selection if current selection is invalid for the new tab
         const currentSelectionValid = filtered.find(e => e.id === selectedEntityId);
-        
         if (!currentSelectionValid && filtered.length > 0) {
             setSelectedEntityId(filtered[0].id);
         }
     }
   }, [activeTab, entities, selectedEntityId]);
 
-  // Modals State
   const [attendanceModal, setAttendanceModal] = useState<{
-    isOpen: boolean;
-    day: string;
-    period: number;
-    entry: TimetableEntry | null;
+    isOpen: boolean; day: string; period: number; entry: TimetableEntry | null;
   }>({ isOpen: false, day: '', period: 0, entry: null });
 
   const [editorModal, setEditorModal] = useState<{
-    isOpen: boolean;
-    day: string;
-    period: number;
-    entry: TimetableEntry | null;
+    isOpen: boolean; day: string; period: number; entry: TimetableEntry | null;
   }>({ isOpen: false, day: '', period: 0, entry: null });
-
-  const handleEntitySelect = (id: string) => {
-    setSelectedEntityId(id);
-  };
 
   const handleSlotClick = (day: string, period: number, entry: TimetableEntry | null) => {
     if (isEditMode) {
@@ -72,19 +54,7 @@ const DashboardLayout: React.FC = () => {
     }
   };
 
-  const handleToggleEditMode = () => {
-    if (isEditMode) {
-      // Always allow turning OFF edit mode
-      setIsEditMode(false);
-    } else {
-      // Require password to turn ON edit mode
-      setIsPasswordOpen(true);
-    }
-  };
-
   const selectedEntity = entities.find(d => d.id === selectedEntityId);
-
-  // Filter Data List based on active tab
   const listData = entities.filter(d => 
     (activeTab === 'classes' ? d.type === 'CLASS' : d.type === 'TEACHER') &&
     d.name.toLowerCase().includes(searchTerm.toLowerCase())
@@ -92,23 +62,21 @@ const DashboardLayout: React.FC = () => {
 
   const getPageTitle = () => {
       switch (activeTab) {
-          case 'dashboard': return 'Live Dashboard';
-          case 'assistant': return 'AI Assistant';
-          case 'settings': return 'App Settings';
-          case 'attendance': return 'Attendance Reports';
-          case 'classes': return selectedEntity ? `${selectedEntity.name} Timetable` : 'Class Management';
-          case 'teachers': return selectedEntity ? `${selectedEntity.name} Schedule` : 'Teacher Management';
-          default: return 'Dashboard';
+          case 'dashboard': return 'Live';
+          case 'assistant': return 'Assistant';
+          case 'settings': return 'Settings';
+          case 'attendance': return 'Reports';
+          default: return activeTab.charAt(0).toUpperCase() + activeTab.slice(1);
       }
   };
 
   return (
-    <div className="flex h-screen bg-[#f8fafc] overflow-hidden text-gray-900">
+    <div className="flex h-screen bg-[#f8fafc] overflow-hidden text-gray-900 font-sans">
       <PasswordModal 
         isOpen={isPasswordOpen} 
         onClose={() => setIsPasswordOpen(false)} 
         onSuccess={() => setIsEditMode(true)}
-        title="Enable Editing"
+        title="Admin Mode"
       />
 
       <Sidebar 
@@ -118,106 +86,103 @@ const DashboardLayout: React.FC = () => {
         setIsMobileOpen={setIsMobileOpen}
       />
 
-      <div className="flex-1 flex flex-col h-full w-full relative overflow-hidden">
-        {/* Top Navbar */}
-        <header className="h-16 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8 z-10 shrink-0">
-          <div className="flex items-center gap-4">
+      <div className="flex-1 flex flex-col h-full min-w-0 overflow-hidden relative">
+        {/* Responsive Navbar */}
+        <header className="h-14 sm:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 lg:px-8 z-40 shrink-0 shadow-sm">
+          <div className="flex items-center gap-2 sm:gap-4">
             <button 
               onClick={() => setIsMobileOpen(true)}
-              className="p-2 -ml-2 text-gray-600 rounded-lg lg:hidden hover:bg-gray-100"
+              className="p-1.5 -ml-1 text-slate-600 rounded-lg lg:hidden hover:bg-slate-100 transition-colors"
             >
-              <Menu className="w-6 h-6" />
+              <Menu className="w-5 h-5 sm:w-6 sm:h-6" />
             </button>
-            <h1 className="text-xl font-bold text-gray-800 hidden sm:block">
-              {getPageTitle()}
-            </h1>
+            <div className="flex flex-col">
+                <h1 className="text-sm sm:text-base font-black text-slate-800 uppercase tracking-wider">
+                  {getPageTitle()}
+                </h1>
+                {selectedEntity && (activeTab === 'classes' || activeTab === 'teachers') && (
+                    <span className="text-[10px] font-bold text-blue-600 sm:hidden">
+                        Viewing: {selectedEntity.name}
+                    </span>
+                )}
+            </div>
           </div>
           
-          <div className="flex items-center gap-3">
-             <div className="hidden md:flex items-center text-sm font-medium text-gray-500 bg-gray-100 px-3 py-1.5 rounded-full">
-                <span>Academic Year {academicYear}</span>
+          <div className="flex items-center gap-2">
+             <div className="hidden sm:flex items-center text-[10px] font-black text-slate-400 bg-slate-100 px-3 py-1.5 rounded-full uppercase tracking-widest border border-slate-200">
+                AY {academicYear}
              </div>
           </div>
         </header>
 
-        {/* Main Content Area */}
-        <main className="flex-1 overflow-hidden p-4 lg:p-6">
+        {/* Dynamic Content Area */}
+        <main className="flex-1 overflow-hidden p-3 sm:p-4 lg:p-6 flex flex-col">
           {activeTab === 'dashboard' ? (
               <DashboardHome />
           ) : activeTab === 'assistant' ? (
             <Assistant />
           ) : activeTab === 'settings' ? (
-            <div className="h-full overflow-y-auto">
+            <div className="h-full overflow-y-auto scrollbar-hide">
                 <Settings />
             </div>
           ) : activeTab === 'attendance' ? (
              <AttendanceReport />
           ) : (
-            <div className="flex flex-col h-full gap-6">
+            <div className="flex flex-col h-full gap-4 sm:gap-6 min-w-0">
               
-              {/* Controls & Filter Bar (Only for Classes/Teachers) */}
-              <div className="flex flex-col sm:flex-row gap-4 justify-between shrink-0">
-                <div className="flex gap-2 w-full sm:w-auto">
-                    <div className="relative flex-1 sm:w-64">
-                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                        <Search className="h-5 w-5 text-gray-400" />
-                    </div>
+              {/* Adaptive Controls Bar */}
+              <div className="flex flex-col md:flex-row gap-3 items-stretch md:items-center justify-between shrink-0 bg-white p-3 rounded-2xl border border-slate-200 shadow-sm">
+                <div className="flex-1 relative">
+                    <Search className="absolute inset-y-0 left-3 my-auto h-4 w-4 text-slate-400" />
                     <input
                         type="text"
-                        className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-lg leading-5 bg-white text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-accent focus:border-accent sm:text-sm shadow-sm"
+                        className="block w-full pl-9 pr-3 py-2 border-none rounded-xl text-sm bg-slate-50 text-slate-900 placeholder-slate-400 focus:ring-2 focus:ring-blue-100 transition-all outline-none font-medium"
                         placeholder={`Search ${activeTab}...`}
                         value={searchTerm}
                         onChange={(e) => setSearchTerm(e.target.value)}
                     />
-                    </div>
                 </div>
                 
-                {/* Entity Selector (Horizontal Scroll) */}
-                <div className="flex gap-2 overflow-x-auto pb-2 sm:pb-0 scrollbar-hide max-w-full sm:max-w-xl">
+                <div className="flex gap-2 overflow-x-auto pb-1 md:pb-0 scrollbar-hide md:max-w-[60%]">
                    {listData.length > 0 ? listData.map(item => (
                        <button
                          key={item.id}
-                         onClick={() => handleEntitySelect(item.id)}
-                         className={`whitespace-nowrap px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                         onClick={() => setSelectedEntityId(item.id)}
+                         className={`whitespace-nowrap px-4 py-2 rounded-xl text-[10px] sm:text-xs font-black uppercase tracking-widest transition-all ${
                              selectedEntityId === item.id 
-                             ? 'bg-primary text-white shadow-lg shadow-blue-900/20' 
-                             : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                             ? 'bg-slate-900 text-white shadow-md' 
+                             : 'bg-white text-slate-500 border border-slate-100 hover:bg-slate-50'
                          }`}
                        >
                            {item.name}
                        </button>
                    )) : (
-                       <div className="text-sm text-gray-400 py-2 italic">No {activeTab} found. Check settings.</div>
+                       <div className="text-[10px] text-slate-400 py-2 uppercase font-black">Empty Registry</div>
                    )}
                 </div>
               </div>
 
-              {/* Timetable View */}
+              {/* Responsive Timetable Area */}
               {selectedEntity ? (
-                  <div className="flex-1 flex flex-col rounded-xl border border-gray-200 shadow-sm bg-white overflow-hidden">
-                      {/* Toolbar */}
-                      <div className="p-3 bg-gray-50 border-b border-gray-100 flex justify-end">
+                  <div className="flex-1 flex flex-col rounded-2xl border border-slate-200 shadow-sm bg-white overflow-hidden min-h-0">
+                      <div className="px-4 py-2.5 bg-slate-50/50 border-b border-slate-100 flex justify-between items-center">
+                        <div className="hidden sm:flex items-center gap-2">
+                            <LayoutGrid className="w-4 h-4 text-slate-400" />
+                            <span className="text-xs font-black text-slate-500 uppercase tracking-widest">{selectedEntity.name} Schedule</span>
+                        </div>
                         <button 
-                            onClick={handleToggleEditMode}
-                            className={`flex items-center px-3 py-1.5 rounded-lg text-xs font-bold uppercase tracking-wider transition-colors ${
+                            onClick={() => isEditMode ? setIsEditMode(false) : setIsPasswordOpen(true)}
+                            className={`flex items-center px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-widest transition-all ${
                                 isEditMode 
-                                ? 'bg-orange-100 text-orange-700 hover:bg-orange-200' 
-                                : 'bg-white border border-gray-200 text-gray-600 hover:bg-gray-100'
+                                ? 'bg-orange-500 text-white shadow-sm' 
+                                : 'bg-white border border-slate-200 text-slate-500 hover:text-slate-800'
                             }`}
                         >
-                            {isEditMode ? (
-                                <>
-                                    <Pencil className="w-3 h-3 mr-2" /> Editing Mode On
-                                </>
-                            ) : (
-                                <>
-                                    <Eye className="w-3 h-3 mr-2" /> View Mode
-                                </>
-                            )}
+                            {isEditMode ? <><Pencil className="w-3 h-3 mr-2" /> Editing</> : <><Eye className="w-3 h-3 mr-2" /> View Only</>}
                         </button>
                       </div>
                       
-                      <div className="flex-1 overflow-auto">
+                      <div className="flex-1 overflow-hidden">
                         <TimetableGrid 
                             data={selectedEntity} 
                             onSlotClick={handleSlotClick} 
@@ -226,11 +191,11 @@ const DashboardLayout: React.FC = () => {
                       </div>
                   </div>
               ) : (
-                  <div className="flex-1 flex items-center justify-center bg-white rounded-xl border border-dashed border-gray-300">
-                      <div className="text-center text-gray-400">
-                          <Filter className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                          <p>Select a {activeTab === 'teachers' ? 'teacher' : 'class'} to view schedule</p>
+                  <div className="flex-1 flex flex-col items-center justify-center bg-white rounded-2xl border-2 border-dashed border-slate-200 p-10 text-center">
+                      <div className="w-16 h-16 bg-slate-50 rounded-full flex items-center justify-center mb-4">
+                          <Filter className="w-8 h-8 text-slate-200" />
                       </div>
+                      <p className="text-slate-400 font-bold text-sm">Select a profile to view timetable</p>
                   </div>
               )}
             </div>
@@ -238,7 +203,6 @@ const DashboardLayout: React.FC = () => {
         </main>
       </div>
 
-      {/* Attendance Modal */}
       {attendanceModal.isOpen && attendanceModal.entry && selectedEntity && (
         <AttendanceModal
           isOpen={attendanceModal.isOpen}
@@ -251,7 +215,6 @@ const DashboardLayout: React.FC = () => {
         />
       )}
 
-      {/* Editor Modal */}
       {editorModal.isOpen && selectedEntity && (
         <ScheduleEditorModal
           isOpen={editorModal.isOpen}
@@ -268,12 +231,5 @@ const DashboardLayout: React.FC = () => {
   );
 };
 
-const App: React.FC = () => {
-  return (
-    <DataProvider>
-      <DashboardLayout />
-    </DataProvider>
-  );
-};
-
+const App: React.FC = () => <DataProvider><DashboardLayout /></DataProvider>;
 export default App;
